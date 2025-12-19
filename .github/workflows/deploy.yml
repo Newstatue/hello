@@ -10,9 +10,11 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64]
 
     steps:
+      # 1️⃣ 拉取最新代码
       - name: 拉取代码
         uses: actions/checkout@v4
 
+      # 2️⃣ 设置 JDK 17
       - name: 设置 JDK 17 环境
         uses: actions/setup-java@v4
         with:
@@ -20,43 +22,51 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      # 3️⃣ 赋予 mvnw 可执行权限
       - name: 赋予 mvnw 可执行权限
         run: chmod +x mvnw
 
+      # 4️⃣ 构建 Spring Boot 项目
       - name: 构建项目
         run: ./mvnw clean package -DskipTests -B -q
 
-      - name: 部署应用（停止旧进程并启动新进程）
+      # 5️⃣ 部署应用（通过 systemd）
+      - name: 部署应用
         shell: bash
         run: |
-          set -e
-          # 选择最新且非 original-* 的 JAR
-          JAR_FILE=$(ls -t target/*.jar | grep -v 'original-' | head -n 1)
-          if [ -z "$JAR_FILE" ]; then
-            echo "未找到可部署的 JAR 文件"; exit 1;
+          set -euo pipefail
+
+          # 选择最新且非 *.jar.original 的 JAR
+          JAR_FILE=$(find target -maxdepth 1 -type f -name "*.jar" ! -name "*.jar.original" -printf "%T@ %p\n" | sort -nr | awk 'NR==1{print $2}')
+          if [ -z "${JAR_FILE:-}" ]; then
+            echo "未找到可部署的 JAR 文件"
+            exit 1
           fi
 
-          # 准备应用目录（Runner 用户 HOME 下）
           APP_DIR="$HOME/hello"
           mkdir -p "$APP_DIR"
+          cp "$JAR_FILE" "$APP_DIR/app.jar"
 
-          # 停止旧进程（如存在）
-          if [ -f "$APP_DIR/app.pid" ]; then
-            OLD_PID=$(cat "$APP_DIR/app.pid")
-            if [ -n "$OLD_PID" ] && ps -p "$OLD_PID" > /dev/null 2>&1; then
-              kill "$OLD_PID" || true
-              # 等待最多15秒直至进程结束
-              for i in $(seq 1 15); do
-                if ps -p "$OLD_PID" > /dev/null 2>&1; then
-                  sleep 1
-                else
-                  break
-                fi
-              done
-            fi
-          fi
+          SERVICE_FILE="/etc/systemd/system/hello.service"
+          sudo tee "$SERVICE_FILE" >/dev/null <<EOF
+          [Unit]
+          Description=Hello Spring Boot App
+          After=network-online.target
+          Wants=network-online.target
 
-          # 启动新进程并记录 PID 与日志
-          nohup java -jar "$JAR_FILE" > "$APP_DIR/app.log" 2>&1 &
-          echo $! > "$APP_DIR/app.pid"
-          echo "应用已启动，PID: $(cat \"$APP_DIR/app.pid\")，日志: $APP_DIR/app.log"
+          [Service]
+          User=$USER
+          WorkingDirectory=$APP_DIR
+          ExecStart=/usr/bin/env java -jar $APP_DIR/app.jar
+          SuccessExitStatus=143
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          sudo systemctl daemon-reload
+          sudo systemctl enable hello.service
+          sudo systemctl restart hello.service
+          sudo systemctl --no-pager status hello.service

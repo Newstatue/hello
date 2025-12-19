@@ -24,7 +24,7 @@ jobs:
         run: chmod +x mvnw
 
       - name: 构建项目
-        run: ./mvnw clean package -DskipTests
+        run: ./mvnw clean package -DskipTests -B -q
 
       - name: 部署应用（停止旧进程并启动新进程）
         shell: bash

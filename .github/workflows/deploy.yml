@@ -47,6 +47,9 @@ jobs:
             exit 1
           fi
 
+          # 解析为绝对路径，避免 docker 卷名误判
+          JAR_FILE=$(readlink -f "$JAR_FILE")
+
           APP_NAME="hello-app"
           HOST_PORT=8080
 

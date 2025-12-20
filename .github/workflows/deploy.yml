@@ -10,9 +10,13 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64]
 
     steps:
-      # 1️⃣ 拉取最新代码
-      - name: 拉取代码
+      # 1️⃣ 拉取最新代码（改用 SSH，需预先在 secrets 配置 REPO_SSH_KEY）
+      - name: 拉取代码（SSH）
         uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.REPO_SSH_KEY }}
+          fetch-depth: 1
+          persist-credentials: false
 
       # 2️⃣ 设置 JDK 17
       - name: 设置 JDK 17 环境
